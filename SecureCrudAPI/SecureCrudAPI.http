@@ -1,0 +1,6 @@
+@SecureCrudAPI_HostAddress = http://localhost:5057
+
+GET {{SecureCrudAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
