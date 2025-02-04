@@ -62,6 +62,8 @@ namespace SecureCrudAPI.Controllers
         //    return Ok(new { Message = "User registered successfully!" });
         //}
 
+
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginModel user)
         {
@@ -72,18 +74,62 @@ namespace SecureCrudAPI.Controllers
             }
 
             var token = GenerateJwtToken(dbUser);
-            return Ok(new { Token = token });
+
+            // Generate Refresh Token
+            dbUser.RefreshToken = Guid.NewGuid().ToString();
+            dbUser.RefreshTokenExpiry = DateTime.Now.AddDays(7);
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Token = token,
+                RefreshToken = dbUser.RefreshToken,
+                RefreshTokenExpiry = dbUser.RefreshTokenExpiry
+            });
         }
+
+
+
+
+
+
+        //[HttpPost("login")]
+        //public async Task<IActionResult> Login([FromBody] LoginModel user)
+        //{
+        //    var dbUser = await _context.Users.SingleOrDefaultAsync(u => u.Username == user.Username);
+        //    if (dbUser == null || !BCrypt.Net.BCrypt.Verify(user.Password, dbUser.PasswordHash))
+        //    {
+        //        return Unauthorized(new { Message = "Invalid username or password" });
+        //    }
+
+        //    var token = GenerateJwtToken(dbUser);
+        //    return Ok(new { Token = token });
+        //}
+
+
+        private int GetUserId()
+        {
+            var userIdClaim = HttpContext.User.Claims.FirstOrDefault(c => c.Type == "UserId");
+            if (userIdClaim == null)
+            {
+                throw new UnauthorizedAccessException("User ID claim is missing.");
+            }
+            return int.Parse(userIdClaim.Value);
+        }
+
+
 
         private string GenerateJwtToken(User user)
         {
             var claims = new[]
             {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Username),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(ClaimTypes.Role, user.Role),
-            new Claim(ClaimTypes.Name, user.Username)
-        };
+        new Claim(JwtRegisteredClaimNames.Sub, user.Username),  // Username ko claim mein add karo
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),  // JWT ID add karo
+        new Claim(ClaimTypes.Role, user.Role),  // User ka role add karo
+        new Claim(ClaimTypes.Name, user.Username),  // User ka name add karo
+        new Claim("UserId", user.Id.ToString())  // Add UserId to the claims
+    };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -97,6 +143,33 @@ namespace SecureCrudAPI.Controllers
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+
+
+
+
+
+        //private string GenerateJwtToken(User user)
+        //{
+        //    var claims = new[]
+        //    {
+        //    new Claim(JwtRegisteredClaimNames.Sub, user.Username),
+        //    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+        //    new Claim(ClaimTypes.Role, user.Role),
+        //    new Claim(ClaimTypes.Name, user.Username)
+        //};
+
+        //    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+        //    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        //    var token = new JwtSecurityToken(
+        //        issuer: _configuration["Jwt:Issuer"],
+        //        audience: _configuration["Jwt:Audience"],
+        //        claims: claims,
+        //        expires: DateTime.Now.AddMinutes(30),
+        //        signingCredentials: creds);
+
+        //    return new JwtSecurityTokenHandler().WriteToken(token);
+        //}
 
 
         private async Task SendVerificationEmail(User user)
@@ -205,15 +278,31 @@ namespace SecureCrudAPI.Controllers
         [HttpPost("refresh-token")]
         public IActionResult RefreshToken([FromBody] string refreshToken)
         {
+            // Find user with the provided refresh token
             var user = _context.Users.SingleOrDefault(u => u.RefreshToken == refreshToken);
             if (user == null || user.RefreshTokenExpiry <= DateTime.Now)
             {
                 return Unauthorized(new { Message = "Invalid or expired refresh token" });
             }
 
+            // Generate a new JWT token
             var newJwtToken = GenerateJwtToken(user);
-            return Ok(new { Token = newJwtToken });
+
+            // Assign a new refresh token and expiry date
+            user.RefreshToken = Guid.NewGuid().ToString(); // Generate a new refresh token
+            user.RefreshTokenExpiry = DateTime.Now.AddDays(7); // Set expiry to 7 days from now
+
+            // Save the updated refresh token details to the database
+            _context.SaveChanges();
+
+            return Ok(new
+            {
+                Token = newJwtToken,
+                RefreshToken = user.RefreshToken, // Return new refresh token
+                RefreshTokenExpiry = user.RefreshTokenExpiry // Optionally return expiry date
+            });
         }
+
 
 
         //////////
@@ -291,6 +380,23 @@ namespace SecureCrudAPI.Controllers
             return Ok(new { Message = "Password reset link sent successfully!" });
         }
 
+        [HttpPut("update-order-status/{orderId}")]
+        public async Task<IActionResult> UpdateOrderStatus(int orderId, [FromBody] string newStatus)
+        {
+            var userId = GetUserId();
+
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
+
+            if (order == null)
+                return NotFound(new { Message = "Order not found" });
+
+            order.OrderStatus = newStatus;
+
+            _context.Orders.Update(order);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "Order status updated successfully" });
+        }
 
 
 

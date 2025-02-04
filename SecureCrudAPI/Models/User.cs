@@ -13,7 +13,8 @@
         public string? ResetToken { get; set; } // Optional
         public DateTime? ResetTokenExpiry { get; set; }
 
-        //public string RefreshToken { get; set; }
+        public string? RefreshToken { get; set; }
+        public DateTime? RefreshTokenExpiry { get; set; }
     }
 
 }
